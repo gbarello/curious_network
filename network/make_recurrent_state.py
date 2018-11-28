@@ -1,27 +1,52 @@
 import tensorflow as tf
 
-def make_recurrent_state(ff_state,initial_state,n_outputs,fflayers,reclayers,extlayers,extinlayers,recnl):
-
-    out = []
-    actions = []
+def make_recurrent_state(image,initial_rec_state,actions,enc_layers,ff_layers,rec_layers,action_layers,ain_layers,pred_layers):
     
-    recurrent_state = initial_state
+    enc = []
+    rec = []
+    pred = []
+    act = []
     
-    for t in range(int(ff_state.shape[1])):
-        action = make_encoder(tf.stop_gradient(recurrent_state),extlayers + [n_outputs],"rec_to_ext",reuse = tf.AUTO_REUSE,nonlin = tf.nn.sigmoid)
-        action = tf.nn.softmax(action)
+    recurrent_state = initial_rec_state
+    
+    for t in range(int(image.shape[1])):
+        encoding,recurrent_state,prediction,action = get_next_state(image[:,t],
+                                                                    recurrent_state,
+                                                                    actions[:,t],
+                                                                    enc_layers,
+                                                                    ff_layers,
+                                                                    rec_layers,
+                                                                    action_layers,
+                                                                    ain_layers,
+                                                                    pred_layers)
         
-        acut = tf.stop_gradient(action)
-        action_input = make_encoder(acut,extinlayers + [initial_state.shape[-1]],"ext_to_rec")
-       
-        ff_input = make_encoder(ff_state[:,t],fflayers + [initial_state.shape[-1]],"ff_to_rec",reuse = tf.AUTO_REUSE)
-        recurrent_input = make_encoder(recurrent_state,reclayers + [initial_state.shape[-1]],"rec_to_rec",reuse = tf.AUTO_REUSE)
+        enc.append(encoding)
+        rec.append(recurrent_state)
+        pred.append(prediction)
+        act.append(action)
+        
+    return {"rec_state":tf.stack(rec,1),"encoding":tf.stack(enc,1),"actions":tf.stack(act,1),"prediction":tf.stack(pred,1)}
 
-        recurrent_state = recnl(ff_input + recurrent_input + action_input)
-        out.append(recurrent_state)
-        actions.append(action)
-        
-    return {"rec_state":tf.stack(out,1),"actions":tf.stack(actions,1)}
+def get_next_state(image_in,rec_state,action,enc_layers,ff_layers,rec_layers,action_layers,ain_layers,pred_layers):
+    image = tf.reshape(image_in,[image_in.shape[0],-1])
+
+    encoding = make_encoder(image,enc_layers,name = "encoder")
+    
+#    ff_input = make_encoder(encoding,ff_layers + [rec_state.shape[-1]],name = "ff_in")
+#    rec_input = make_encoder(rec_state,rec_layers + [rec_state.shape[-1]],name = "rec_in")
+#    action_input = make_encoder(action,ain_layers + [rec_state.shape[-1]],name = "act_in")
+
+    rec_state_inp = tf.concat([encoding,rec_state,action],axis = -1)
+    new_rec_state = make_encoder(rec_state_inp,rec_layers + [rec_state.shape[-1]],name = "rec_in",nonlin = tf.nn.relu)
+    
+#    new_rec_state = tf.nn.sigmoid(ff_input + rec_input + action_input)
+    
+    prediction = make_encoder(tf.stop_gradient(new_rec_state),pred_layers + [encoding.shape[-1]],name = "prediction")
+    next_action = make_encoder(tf.stop_gradient(new_rec_state),action_layers + [action.shape[-1]],name = "action")
+    next_action = tf.nn.softmax(next_action)
+    
+    return encoding, new_rec_state,prediction, next_action
+    
 
 def make_encoder(input_tensor,layers,name,reuse = tf.AUTO_REUSE,nonlin = tf.nn.relu):
     net = input_tensor
