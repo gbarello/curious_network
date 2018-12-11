@@ -21,7 +21,7 @@ def make_ECM(new_frame,episodic_memory_buffer,par):
 
 class episodic_curiosity_module:
 
-    def __init__(self,frame_variable,adam,A = 1.,B = .5,threshold = .5,emb_size = 512,nbatch = 12):
+    def __init__(self,frame_variable,adam,A = 1.,B = .5,threshold = .9,emb_size = 512,nbatch = 12):
         #buffer for memory
         self.buff_placeholder = tf.placeholder(tf.float32,shape = [None,emb_size])
         self.buff = []
@@ -77,14 +77,14 @@ class episodic_curiosity_module:
         else:
             out,emb = sess.run(self.ECM,{self.ECM_new_input:frame,self.buff_placeholder: np.array(self.buff)})
 
-            percent = np.percentile(out,.9)
-
+            percent = np.percentile(out,.1)
+        
             for k in range(len(self.buff)):
                 self.bufftime[k] += 1
-        
+                
             if percent > self.threshold:
                 self.add_memory(emb)
         
-            return percent
+            return (1 if percent > self.threshold else 0)
 
     

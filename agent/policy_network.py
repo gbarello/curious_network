@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-def make_policy_net(inputs,n_output,dense_layers,cnn_layers,size,stride,pool,poolstride,single = False):
+def make_policy_net(inputs,n_output,dense_layers,cnn_layers,size,stride,pool,poolstride,single = False,softmax = True):
 
     if single:
         net = tf.expand_dims(inputs,0)
@@ -21,7 +21,9 @@ def make_policy_net(inputs,n_output,dense_layers,cnn_layers,size,stride,pool,poo
         net = tf.layers.dropout(net,.5)
 
     net = tf.layers.dense(net,n_output,activation = lambda x:x)
-    net = tf.nn.softmax(net)
+    if softmax:
+        net = tf.nn.softmax(net)
+        
     if single:
         net = net[0]
     

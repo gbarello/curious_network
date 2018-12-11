@@ -24,11 +24,11 @@ def make_system():
     episodic_mem = ECM_build.episodic_curiosity_module(frame_input,adam)
 
     pol_net = policy.make_policy_net(frame_input,18,[512],[512,256,128,64],[3,3,3,3],[2,1,1,1],[2,2,2,2],[1,1,1,1],single = True)
-    many_pol_net = policy.make_policy_net(many_frame_input,18,[512],[512,256,128,64],[3,3,3,3],[2,1,1,1],[2,2,2,2],[1,1,1,1],single = False)
+    many_pol_net = policy.make_policy_net(many_frame_input,18,[512],[512,256,128,64],[3,3,3,3],[2,1,1,1],[2,2,2,2],[1,1,1,1],single = False,softmax = False)
 
     return {"env":env,"frame_input":frame_input,"optimizer":adam,"ECM":episodic_mem,"full_policy":many_pol_net,"policy":pol_net,"iframe":o,"many_frames":many_frame_input}
 
-def make_cp_batch(img,n,cut = 3,kap = 2):
+def make_cp_batch(img,n,cut = 10,kap = 2):
 
     close = [[img[a],img[b]] for a in range(len(img) - cut) for b in range(cut)]
     far = [[img[a],img[b]] for a in range(len(img) - kap*cut+1) for b in range(a + kap*cut,len(img))]
@@ -86,8 +86,10 @@ def main():
     agent_stuff = make_system()
     ECM = agent_stuff["ECM"]
     
-    nepc = 1000
+    nepc = 10000
     eplen = 50
+
+    extrinsic_reward = []
 
     alpha = 1
     beta = 0
@@ -96,7 +98,8 @@ def main():
     action_prob = tf.placeholder(tf.float32,[None,18])
     reward_inp = tf.placeholder(tf.float32,[None])
 
-    policy_loss = tf.reduce_mean(tf.log(tf.reduce_sum(action_inp*agent_stuff["full_policy"],axis = 1))*reward_inp)
+    policy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits_v2(labels = action_inp,logits = agent_stuff["full_policy"])*reward_inp)
+#    policy_loss = tf.reduce_mean(tf.reduce_sum(action_inp*agent_stuff["full_policy"],axis = -1)*reward_inp)
 
     policy_train = agent_stuff["optimizer"].minimize(-policy_loss)
 
@@ -106,9 +109,11 @@ def main():
     sess = tf.Session()
     sess.run(init)
 
+    pol_epc = 100
+
     for epoch in range(nepc):
         print(epoch)
-        obs,action,pact,erew,embed = run_episode(eplen,agent_stuff,init_obs,sess,policy = True if epoch > 100 else False)
+        obs,action,pact,erew,embed = run_episode(eplen,agent_stuff,init_obs,sess,policy = True if epoch > pol_epc else False)
         init_obs = obs[-1]
         
         cp_batch, cp_label = make_cp_batch(embed,ECM.nbatch)
@@ -116,21 +121,39 @@ def main():
         _,cout,cscore = sess.run([ECM.comp_train,ECM.comp_net_out,ECM.comploss],{ECM.frame1:cp_batch[:,0],ECM.frame2:cp_batch[:,1],ECM.complabel:cp_label})
         print(np.mean(cscore))
         
-        if epoch > 1:
+        if epoch > pol_epc:
             cp_out = ECM.run_ECM_on_video(obs,sess)
 
             r_int = get_intrinsic_rew(cp_out,alpha,beta)
 
-            action_1hot = np.zeros([len(action),18])
-            action_1hot[np.arange(len(action)),action] = 1.
-            
-            policy_perf,_ = sess.run([policy_loss,policy_train],{action_inp : action_1hot,agent_stuff["many_frames"] : np.array(obs), reward_inp : r_int + np.array(erew)})
-                       
-            print("{}\t{}".format(policy_perf,len(ECM.buff)))
-            ECM.clean_buffer(10)
+            if len(ECM.buff) > 0 :
+                action_1hot = np.zeros([len(action),18])
+                action_1hot[np.arange(len(action)),action] = 1.
+                
+                full_p,policy_perf,_ = sess.run([agent_stuff["full_policy"],policy_loss,policy_train],{action_inp : action_1hot,agent_stuff["many_frames"] : np.array(obs), reward_inp : get_discounted_rew(r_int + np.array(erew))})
+                
+                print("{}\t{}".format(policy_perf,len(ECM.buff)))
+                print(full_p[0])
+                print(np.mean(r_int + np.array(erew)))
+                print(np.mean(np.array(erew)))
+                
+                extrinsic_reward.append(np.mean(np.array(erew)))
+                
+                ECM.clean_buffer(1000)
+
+    np.savetxt("./ext_rew.csv",extrinsic_reward)
             
 def get_intrinsic_rew(comparator_output,a,b):
     return a * np.sum(np.array(comparator_output) - b)
+
+def get_discounted_rew(rew,gamma = .9):
+
+    o = [rew[-1]]
+
+    for k in reversed(range(len(rew)-1)):
+        o.append(o[-1]*gamma + rew[k])
+
+    return np.array(o[::-1])
 
 if __name__ == "__main__":
     main()
