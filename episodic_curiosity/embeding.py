@@ -15,3 +15,16 @@ def embedding(I,param,single = False):
         emb = emb[0]
 
     return emb
+
+def dense_embedding(I,param,single = False):
+    if single:
+        inputs = tf.expand_dims(I,0)
+    else:
+        inputs = I
+        
+    emb = blk.make_dense_encoder(inputs,[param["emb_size"]],"den_emb",outnonlin = lambda x:x)
+
+    if single:
+        emb = emb[0]
+
+    return emb

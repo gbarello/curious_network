@@ -18,9 +18,31 @@ def make_policy_net(inputs,n_output,dense_layers,cnn_layers,size,stride,pool,poo
     
     for k in range(len(dense_layers)):
         net = tf.layers.dense(net,dense_layers[k],activation = tf.nn.relu)
-        net = tf.layers.dropout(net,.5)
 
     net = tf.layers.dense(net,n_output,activation = lambda x:x)
+    
+    if softmax:
+        net = tf.nn.softmax(net)
+        
+    if single:
+        net = net[0]
+    
+    return net
+
+def make_dense_policy_net(inputs,n_output,dense_layers,softmax = True,single = False):
+    if single:
+        net = tf.expand_dims(inputs,0)
+    else:
+        net = inputs
+
+    nout = [int(i) for i in net.shape[1:]]
+    net = tf.reshape(net,[-1,np.prod(nout)])
+    
+    for k in range(len(dense_layers)):
+        net = tf.layers.dense(net,dense_layers[k],activation = tf.nn.relu)
+
+    net = tf.layers.dense(net,n_output,activation = lambda x:x)
+    
     if softmax:
         net = tf.nn.softmax(net)
         
